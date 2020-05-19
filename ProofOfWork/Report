@@ -1,0 +1,46 @@
+
+
+
+## Report
+
+
+Function - mine(block)
+/**
+	This function calculates the nonce which can be used for the block
+**/
+
+1. Calculate Target value from bits provided in block
+2. Find a bounce for which the hash of the block is less than target. I simply increment the nonce by 1 and re-calculate the hash until the hash is less than target
+
+
+
+Function - get_target_from_bits(bits)
+/**
+	This function gets the target from the bits
+**/
+
+1. In this function I calculate the value of bits[5:0] by using bits % 0x1000000
+2. Then we get bits[7:6] by using bits/0x1000000
+3. Finally the target is calculated - target = int(bits % 0x1000000) * (2 ** (8 * (int(bits/0x1000000) - 3)))
+
+
+
+Function - get_bits_from_target(target)
+/**
+	This function get the bits from target
+**/
+
+1. First calculate the bit length of the target by len(hex(int(target))[2:]) * 4
+2. Calculate the size = (bitlength + 7) / 8
+3. Value = int(target) >> 8 * (int(size) - 3)
+4. value |= int(size) << 24
+
+
+Function - Change_Target(prev_bits, start_time, end_time, target_time)
+/**
+	This function changes the target according the to target time
+**/
+
+1. Calculates the previous target
+2. Calculates the time span for the previous block chain
+3. Calculates the new target by new_target = (time_span / target_time) * prev_target

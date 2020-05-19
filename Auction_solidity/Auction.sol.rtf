@@ -1,0 +1,250 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2511
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww36060\viewh18300\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 pragma solidity ^0.5.11;\
+\
+import "github.com/oraclize/ethereum-api/provableAPI.sol";\
+contract owned is usingProvable \{\
+    constructor() public \{ owner = msg.sender; \}\
+    address payable owner;\
+    \
+    modifier onlyOwner \{\
+        require(\
+            msg.sender == owner,\
+            "Only owner can call this function."\
+        );\
+        _;\
+    \}\
+\}\
+\
+contract Auction is owned \{\
+    \
+    //holds the address of all the registered auctioneers\
+    address[] auctioneer;\
+    //boolean variable to hold of registration process is on\
+    bool isRegistrationStopped;\
+    // boolean variable to know if bidding is on or of\
+    bool bidStopped;\
+    // holds the map of address and the commited value\
+    mapping(address => bytes32) public commitment;\
+    //keys for commitment map\
+    address[] private commitmentKeys;\
+    //map of address and bid in usd\
+    mapping(address => uint) public bidMap;\
+    address[] private bidMapKeys;\
+    // list iof all valid auctioneers\
+    address payable[]  validAuctioneer;\
+    //owner of the smart contract\
+    address owner;\
+    //map tpo keep note of the money locked which needs to be returned\
+    mapping(address => uint) private auctioneerLockedEther;\
+    address[] private auctioneerLockedEtherKeys;\
+    \
+    //list of auction_winners\
+    mapping(address => uint) public winners;\
+    address[] winners_list;\
+    // exchange rate\
+    uint public ETHUSD;\
+    \
+    \
+    // triggering events\
+   event NewProvableQuery(string description);\
+   event PriceUpdated(string price);\
+    \
+    // the function executed by the transaction\
+    function __callback(bytes32 myid, string memory result) public \{\
+       if (msg.sender != provable_cbAddress()) revert();\
+       ETHUSD = parseInt(result);   // in fact the price is float, and parseInt() rounds it down\
+                                    // (e.g, for 214.97USD per 1Eth, the rounded value will be 214)\
+       emit PriceUpdated(result);\
+    \}\
+\
+    // send a query to update the price of Ether\
+    function updatePrice() payable public \{\
+       if (provable_getPrice("URL") > address(this).balance) \{\
+           emit NewProvableQuery("Provable query was NOT sent, please add some ETH to cover for the query fee");\
+       \} else \{\
+           emit NewProvableQuery("Provable query was sent, standing by for the answer..");\
+           provable_query("URL", "json(https://api.pro.coinbase.com/products/ETH-USD/ticker).price");\
+       \}\
+    \}\
+    \
+    \
+    function getBalance() public returns (uint) \{\
+        return address(this).balance;\
+    \}\
+    \
+    function getEthUSD() public returns (uint) \{\
+        return ETHUSD;\
+    \} \
+    \
+    \
+    /**\
+     * Constructor of the contract used to initiate a contract. This initiates the boolean variable and set the owner to the address who deploys this contract. \
+    **/\
+    constructor() public \{\
+        owner = msg.sender;\
+        bidStopped = false;\
+        isRegistrationStopped = false;\
+        updatePrice();\
+    \}\
+    \
+    \
+    /**\
+     *  This function is used to register a Auctioneer for the aution process. User address is checked if its already registered. \
+    **/\
+    function registerAuctioneer() public \{ // throw error\
+        require(isRegistrationStopped == false);\
+        bool alreadyRegistered = false;\
+       //REGISTRATION IS OPEN\
+            for(uint i = 0; i< auctioneer.length; i++) \{\
+                if(auctioneer[i] == msg.sender)\
+                    alreadyRegistered = true;\
+            \}\
+            if(!alreadyRegistered) \{\
+                auctioneer.push(msg.sender);\
+            \}\
+        \
+    \}\
+    \
+    /**\
+     * Stop registration process\
+    **/\
+    function registerStop() public onlyOwner \{\
+        isRegistrationStopped = true;\
+    \}\
+    \
+    /**\
+     * This is commit bid function called by the auctioneers \
+     * \
+    **/\
+    function commitBid(bytes32 hash_commit) public payable \{\
+        \
+        require(bidStopped == false);\
+        \
+        //check if the autioneer is registred to bidStopped\
+        bool isRegistered = false;\
+        for(uint i = 0; i< auctioneer.length; i++) \{\
+            if(msg.sender == auctioneer[i]) \{\
+                isRegistered = true;\
+                break;\
+            \}\
+        \}\
+        \
+        //return if user not registered\
+        //check if the auctioneer has not already placed the bid\
+        if(!isRegistered || commitment[msg.sender] != bytes32(0x0)) \{\
+            //return the money\
+            msg.sender.transfer(msg.value);\
+            return;\
+        \}\
+            \
+        //place the bid in the commitment mapping\
+        commitment[msg.sender] = hash_commit;\
+        commitmentKeys.push(msg.sender);\
+        auctioneerLockedEther[msg.sender] = msg.value ;\
+        auctioneerLockedEtherKeys.push(msg.sender);\
+    \}\
+    \
+    \
+    /**\
+     * get the list of winners\
+     **/\
+     function getWinners() public returns (address[] memory)\{\
+         return winners_list;\
+     \}\
+    \
+    /**\
+     * This function is called by the owner to stop the bid process \
+     * \
+    **/\
+    function commitBidStop() public onlyOwner\{\
+        bidStopped = true;\
+    \}\
+    \
+    /**\
+     * Send the bid to the Auction owner for the owner to verify\
+    **/\
+    function sendBid(uint bid_in_USD, uint random_seed, address public_key) public \{\
+        \
+        if( bidMap[msg.sender] == 0 ) \{ //check if user has not already send the bid\
+            //if hash matches ====================\
+            \
+            if(keccak256(abi.encode(bid_in_USD, random_seed, public_key)) == commitment[msg.sender]) \{\
+                bidMap[msg.sender] = bid_in_USD;\
+                bidMapKeys.push(msg.sender);\
+                \
+                // value committed should be greater than bid placed\
+                if( (computeExchange() * (auctioneerLockedEther[msg.sender] /10 **18) ) < bidMap[msg.sender]) \{\
+                  auctioneerLockedEther[msg.sender] = 0;  \
+                \} else \{\
+                validAuctioneer.push(msg.sender);\
+                \}\
+            \} else \{ // else take all the money\
+                auctioneerLockedEther[msg.sender] = 0;\
+            \}\
+        \}\
+    \}\
+    \
+    /**\
+     *  Compute the exchange rate of ethereum to USD\
+     *  Return the $USD value of one ethereum\
+    **/\
+    function computeExchange() private returns (uint) \{\
+        return ETHUSD;\
+    \}\
+    \
+    /**\
+     *  Compute the winner who places the largest bid in the auction, returns the winner left out money and rest of the money for every auctioneer\
+    **/\
+    function computeWinner() public onlyOwner returns (address) \{\
+        address highest_bidder;\
+        uint largestBid = 0;\
+        for(uint i =0; i < validAuctioneer.length; i++) \{\
+            if(bidMap[validAuctioneer[i]] > largestBid) \{\
+                highest_bidder = validAuctioneer[i];\
+                largestBid = bidMap[validAuctioneer[i]];\
+            \}\
+        \}\
+        winners[highest_bidder] = largestBid;\
+        winners_list.push(highest_bidder);\
+        //return the money to all the bidders accordingly\
+        for(uint i =0; i < validAuctioneer.length; i++) \{\
+            if(validAuctioneer[i] == highest_bidder) \{\
+                validAuctioneer[i].transfer( auctioneerLockedEther[validAuctioneer[i]] - (bidMap[validAuctioneer[i]] * (10 ** 18)/computeExchange()) );\
+            \} else \{\
+               validAuctioneer[i].transfer( auctioneerLockedEther[validAuctioneer[i]] );\
+            \}\
+        \}\
+        return highest_bidder;\
+    \}\
+    \
+    /**\
+     *  This function is used to reset the Auction  \
+    **/\
+    function resetAuction() public \{\
+        delete auctioneer;\
+        isRegistrationStopped = false;\
+        bidStopped = false;\
+        for(uint i=0; i<commitmentKeys.length; i++) \{\
+            delete commitment[commitmentKeys[i]];\
+        \}\
+        delete commitmentKeys;\
+        for(uint i=0; i<bidMapKeys.length; i++) \{\
+            delete bidMap[bidMapKeys[i]];\
+        \}\
+        delete bidMapKeys;\
+        delete validAuctioneer;\
+        delete owner;\
+        for(uint i=0; i<auctioneerLockedEtherKeys.length; i++) \{\
+            delete auctioneerLockedEther[auctioneerLockedEtherKeys[i]];\
+        \}\
+        delete auctioneerLockedEtherKeys;\
+    \}\
+    \
+    \
+\}}
